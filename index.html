@@ -24,7 +24,12 @@
   <div id="full">
 
     <section id="upload_sec" class="centered" style="visibility : hidden;">
-      <h1>Vesc Data Log Analyzer</h1><br>
+      <h1 id="app_title">Vesc Data Log Analyzer</h1><br>
+      <label for="board_mode">Board profile</label>
+      <select id="board_mode">
+        <option value="eskate">E-skateboard</option>
+        <option value="efoil">Efoil</option>
+      </select><br><br>
       <input type="file" id="files" name="files[]" multiple />
     </section>
 
@@ -43,10 +48,19 @@
           <ul id="menu_list"></ul>
         </div>
       </div>
-      <div id="mapid"></div>
-      <div id="chart_container">
-        <div id="chart" class="chartclass"></div>
-        <span id="uplot_creds"><a href="https://github.com/leeoniya/uPlot" title="A small fast chart for time series, lines, areas, ohlc & bars">uPlot</a></span>
+      <div id="tab_bar">
+        <button id="tab_log" class="tab_button active" onclick="show_tab('log')">Log</button>
+        <button id="tab_performance" class="tab_button" onclick="show_tab('performance')">Performance</button>
+      </div>
+      <div id="log_view">
+        <div id="mapid"></div>
+        <div id="chart_container">
+          <div id="chart" class="chartclass"></div>
+          <span id="uplot_creds"><a href="https://github.com/leeoniya/uPlot" title="A small fast chart for time series, lines, areas, ohlc & bars">uPlot</a></span>
+        </div>
+      </div>
+      <div id="performance_view">
+        <div id="performance_content"></div>
       </div>
       <output id="file_list"></output>
       <output id="settings_list"></output>

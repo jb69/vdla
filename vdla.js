@@ -1,3 +1,5 @@
+var saved_board_mode = localStorage.getItem("vdla-board-mode");
+var board_mode = saved_board_mode === "efoil" ? "efoil" : "eskate";
 var units = ["°C", "A", "A", "%", "km/h", "V", "Ah", "Ah", "Wh", "Wh", "km", "W", "m", "km/h"]
 var axes_names = units.filter(function (item, pos, self) {
   return self.indexOf(item) == pos;
@@ -5,8 +7,11 @@ var axes_names = units.filter(function (item, pos, self) {
 var colors = ["red", "purple", "green", "lime", "navy", "blue", "orange", "cyan", "darkcyan", "olive", "yellow", "teal", "maroon", "fuchsia"]
 var fill = ["rgba(255, 0, 0, 0.3)", "rgba(128, 0, 128, 0.3)", "rgba(0, 128, 0, 0.3)", "rgba(0, 255, 0, 0.3)", "rgba(0, 0, 128, 0.3)", "rgba(0, 0, 255, 0.3)", "rgba(255, 165, 0, 0.3)", "rgba(0, 255, 255, 0.3)", "rgba(0, 139, 139, 0.3)", "rgba(128, 128, 0, 0.3)", "rgba(255, 255, 0, 0.3)", "rgba(0, 128, 128, 0.3)", "rgba(128, 0, 0, 0.3)", "rgba(255, 0, 255, 0.3)"]
 var series_shown = [true, false, true, true, true, true, false, false, false, false, false, true, false, false];
+var default_units = units.slice();
+var default_series_shown = series_shown.slice();
 var Times = [];
 var TempPcbs = [];
+var MotorTemps = [];
 var MotorCurrents = [];
 var BatteryCurrents = [];
 var DutyCycles = [];
@@ -23,7 +28,11 @@ var TimePassedInMss = [];
 var latlngs = [];
 var Altitudes = [];
 var GPSSpeeds = [];
+var VerticalSpeeds = [];
+var HorizontalAccuracies = [];
+var GnssDistances = [];
 var names = [];
+var base_names = [];
 var data = [];
 var curr_plot_indx = 0;
 var curr_map_indx = 0;
@@ -31,6 +40,26 @@ var map;
 var uplot;
 var menu_visible = false;
 var map_popup;
+var active_tab = "log";
+var FAULT_NAMES = {
+  1: "Over voltage",
+  2: "Under voltage",
+  3: "DRV gate driver",
+  4: "Absolute over-current",
+  5: "Controller over-temperature",
+  6: "Motor over-temperature",
+  7: "Gate driver over-voltage",
+  8: "Gate driver under-voltage",
+  9: "MCU under-voltage",
+  10: "Booting from watchdog reset",
+  11: "Encoder SPI",
+  12: "Encoder sin/cos amplitude",
+  13: "Flash corruption",
+  14: "High offset current sensor 1",
+  15: "High offset current sensor 2",
+  16: "High offset current sensor 3",
+  17: "Unbalanced currents"
+};
 
 //uplot plugins
 function touchZoomPlugin(opts) {
@@ -169,6 +198,95 @@ function getAllIndexes(arr, val) {
   return indexes;
 }
 
+function haversine_distance_km(lat1, lon1, lat2, lon2) {
+  var earth_radius_km = 6371;
+  var lat_delta = (lat2 - lat1) * Math.PI / 180;
+  var lon_delta = (lon2 - lon1) * Math.PI / 180;
+  var a = Math.sin(lat_delta / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(lon_delta / 2) ** 2;
+  return 2 * earth_radius_km * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function compute_gnss_metrics() {
+  GnssDistances = [];
+  VerticalSpeeds = [];
+  var total_distance = 0;
+
+  for (var i = 0; i < Times.length; i++) {
+    if (i === 0) {
+      GnssDistances.push(0);
+      VerticalSpeeds.push(0);
+      continue;
+    }
+
+    var elapsed_seconds = Times[i] - Times[i - 1];
+    total_distance += haversine_distance_km(
+      latlngs[i - 1][0], latlngs[i - 1][1], latlngs[i][0], latlngs[i][1]);
+
+    GnssDistances.push(total_distance);
+    VerticalSpeeds.push(elapsed_seconds > 0 ?
+      (Altitudes[i] - Altitudes[i - 1]) / elapsed_seconds : 0);
+  }
+}
+
+function apply_profile() {
+  if (board_mode === "efoil") {
+    // Efoils have no wheel, so the logged tacho speed/distance are meaningless.
+    names = [
+      "TempPcb",
+      "MotorCurrent",
+      "BatteryCurrent",
+      "DutyCycle",
+      "GNSSSpeed",
+      "InpVoltage",
+      "AmpHours",
+      "AmpHoursCharged",
+      "WattHours",
+      "WattHoursCharged",
+      "Distance",
+      "Power",
+      "Altitude",
+      "VerticalSpeed",
+      "HorizontalAccuracy"
+    ];
+    units = ["°C", "A", "A", "%", "km/h", "V", "Ah", "Ah", "Wh", "Wh", "km", "W", "m", "m/s", "m"];
+    series_shown = [true, false, true, true, true, true, false, false, false, false, true, true, false, false, false];
+    data = [Times, TempPcbs, MotorCurrents, BatteryCurrents, DutyCycles, GPSSpeeds,
+      InpVoltages, AmpHours, AmpHoursCharged, WattHours, WattHoursCharged,
+      GnssDistances, Powers, Altitudes, VerticalSpeeds, HorizontalAccuracies];
+  } else {
+    names = base_names.slice();
+    units = default_units.slice();
+    series_shown = default_series_shown.slice();
+    data = [Times, TempPcbs, MotorCurrents, BatteryCurrents, DutyCycles, Speeds,
+      InpVoltages, AmpHours, AmpHoursCharged, WattHours, WattHoursCharged,
+      Distances, Powers, Altitudes, GPSSpeeds];
+  }
+  axes_names = units.filter(function (item, pos, self) {
+    return self.indexOf(item) === pos;
+  });
+}
+
+function set_board_mode(mode) {
+  board_mode = mode === "efoil" ? "efoil" : "eskate";
+  localStorage.setItem("vdla-board-mode", board_mode);
+  document.getElementById('app_title').textContent = mode === "efoil" ?
+    "Efoil Data Log Analyzer" : "Vesc Data Log Analyzer";
+  document.getElementById('board_mode').value = mode;
+
+  if (Times.length === 0) {
+    return;
+  }
+  apply_profile();
+  uplot.destroy();
+  create_chart();
+  fill_menu();
+  if (active_tab === "performance") {
+    render_performance();
+  }
+}
+
 function handleError(txt) {
   var span = document.createElement('span');
   span.innerHTML = txt;
@@ -234,6 +352,398 @@ function show_content() {
   document.getElementById("upload_sec").style.visibility = "hidden";
 }
 
+function show_tab(tab) {
+  active_tab = tab;
+  document.getElementById("tab_log").classList.toggle("active", tab === "log");
+  document.getElementById("tab_performance").classList.toggle("active", tab === "performance");
+  document.getElementById("log_view").style.display = tab === "log" ? "block" : "none";
+  document.getElementById("performance_view").style.display = tab === "performance" ? "block" : "none";
+
+  if (tab === "performance") {
+    render_performance();
+    return;
+  }
+  // Leaflet and uPlot need re-measuring after their container regains size.
+  if (map) {
+    map.invalidateSize();
+  }
+  if (uplot) {
+    uplot.setSize(get_window_size());
+  }
+}
+
+function array_min(arr) {
+  var min = Infinity;
+  for (var i = 0; i < arr.length; i++) {
+    if (arr[i] < min) min = arr[i];
+  }
+  return min;
+}
+
+function array_max(arr) {
+  var max = -Infinity;
+  for (var i = 0; i < arr.length; i++) {
+    if (arr[i] > max) max = arr[i];
+  }
+  return max;
+}
+
+function array_mean(arr) {
+  if (arr.length === 0) {
+    return 0;
+  }
+  var sum = 0;
+  for (var i = 0; i < arr.length; i++) {
+    sum += arr[i];
+  }
+  return sum / arr.length;
+}
+
+function format_duration(seconds) {
+  var total = Math.round(seconds);
+  var hours = Math.floor(total / 3600);
+  var minutes = Math.floor((total % 3600) / 60);
+  if (hours > 0) {
+    return hours + "h " + minutes + "m";
+  }
+  return minutes + "m " + (total % 60) + "s";
+}
+
+function performance_heading(text) {
+  var heading = document.createElement('div');
+  heading.className = "perf_heading";
+  heading.textContent = text;
+  return heading;
+}
+
+function performance_card(label, value, note) {
+  var card = document.createElement('div');
+  card.className = "perf_card";
+
+  var label_el = document.createElement('div');
+  label_el.className = "perf_label";
+  label_el.textContent = label;
+  card.appendChild(label_el);
+
+  var value_el = document.createElement('div');
+  value_el.className = "perf_value";
+  value_el.textContent = value;
+  card.appendChild(value_el);
+
+  if (note) {
+    var note_el = document.createElement('div');
+    note_el.className = "perf_note";
+    note_el.textContent = note;
+    card.appendChild(note_el);
+  }
+  return card;
+}
+
+function count_where(arr, predicate) {
+  var total = 0;
+  for (var i = 0; i < arr.length; i++) {
+    if (predicate(arr[i])) total++;
+  }
+  return total;
+}
+
+// Least-squares slope of voltage against current approximates pack resistance.
+function estimate_pack_resistance(voltages, currents) {
+  var mean_i = array_mean(currents);
+  var mean_v = array_mean(voltages);
+  var numerator = 0;
+  var denominator = 0;
+  for (var i = 0; i < currents.length; i++) {
+    numerator += (currents[i] - mean_i) * (voltages[i] - mean_v);
+    denominator += (currents[i] - mean_i) * (currents[i] - mean_i);
+  }
+  if (denominator === 0) {
+    return 0;
+  }
+  return -numerator / denominator;
+}
+
+function analyse_performance() {
+  var findings = [];
+  var temps = data[1];
+  var motor_current = data[2];
+  var battery_current = data[3];
+  var duty = data[4];
+  var speeds = data[5];
+  var voltages = data[6];
+  var charged = data[10];
+  var samples = Times.length;
+
+  var fault_counts = {};
+  for (var i = 0; i < Faults.length; i++) {
+    if (Faults[i] > 0) {
+      fault_counts[Faults[i]] = (fault_counts[Faults[i]] || 0) + 1;
+    }
+  }
+  var fault_codes = Object.keys(fault_counts);
+  if (fault_codes.length > 0) {
+    var described = fault_codes.map(function (code) {
+      return (FAULT_NAMES[code] || ("Fault code " + code)) + " (" + fault_counts[code] + "x)";
+    });
+    findings.push({
+      severity: "critical",
+      title: "Controller faults logged",
+      detail: described.join(", "),
+      action: fault_counts[4] ?
+        "Absolute over-current trips usually mean the ABS max current is set too close to the motor current limit, or motor detection is off. Re-run FOC detection and raise the absolute maximum above your motor current limit." :
+        "Review the VESC fault history and address the cause before the next session."
+    });
+  } else {
+    findings.push({
+      severity: "ok",
+      title: "No controller faults",
+      detail: "All " + samples + " samples reported fault code 0."
+    });
+  }
+
+  var peak_fet = array_max(temps);
+  var fet_hot_pct = 100 * count_where(temps, function (t) { return t > 70; }) / samples;
+  if (peak_fet >= 85) {
+    findings.push({
+      severity: "critical",
+      title: "Controller hit thermal throttling",
+      detail: "Peak controller temperature " + peak_fet.toFixed(1) + " °C, at or above the 85 °C default throttle point.",
+      action: "Power was almost certainly cut back. Improve controller cooling or reduce current limits."
+    });
+  } else if (peak_fet >= 75) {
+    findings.push({
+      severity: "warning",
+      title: "Controller running hot",
+      detail: "Peak " + peak_fet.toFixed(1) + " °C, within " + (85 - peak_fet).toFixed(1) +
+        " °C of the 85 °C default throttle point. " + fet_hot_pct.toFixed(1) + "% of samples above 70 °C.",
+      action: "A longer or harder run would likely throttle. Consider better heatsinking or airflow."
+    });
+  } else {
+    findings.push({
+      severity: "ok",
+      title: "Controller temperature healthy",
+      detail: "Peak " + peak_fet.toFixed(1) + " °C, well below the 85 °C throttle point."
+    });
+  }
+
+  var peak_motor_temp = array_max(MotorTemps);
+  if (peak_motor_temp > 0) {
+    if (peak_motor_temp >= 85) {
+      findings.push({
+        severity: "critical",
+        title: "Motor hit thermal throttling",
+        detail: "Peak motor temperature " + peak_motor_temp.toFixed(1) + " °C, at or above the 85 °C default limit.",
+        action: "Reduce sustained current or improve motor cooling."
+      });
+    } else if (peak_motor_temp >= 75) {
+      findings.push({
+        severity: "warning",
+        title: "Motor running hot",
+        detail: "Peak motor temperature " + peak_motor_temp.toFixed(1) + " °C, within " +
+          (85 - peak_motor_temp).toFixed(1) + " °C of the default 85 °C limit.",
+        action: "Motor temperature is the usual limit on sustained runs. Watch this on longer sessions."
+      });
+    } else {
+      findings.push({
+        severity: "ok",
+        title: "Motor temperature healthy",
+        detail: "Peak motor temperature " + peak_motor_temp.toFixed(1) + " °C."
+      });
+    }
+  }
+
+  var moving = count_where(speeds, function (s) { return s > 1; });
+  if (moving > 0) {
+    var high_duty_pct = 100 * count_where(duty, function (d) { return d > 95; }) / moving;
+    if (high_duty_pct > 5) {
+      findings.push({
+        severity: "warning",
+        title: "Hitting the duty cycle limit",
+        detail: high_duty_pct.toFixed(1) + "% of moving time was above 95% duty (peak " +
+          array_max(duty).toFixed(0) + "%).",
+        action: "Top speed is limited by battery voltage and motor KV, not available current. More voltage or a higher KV motor would raise it."
+      });
+    } else {
+      findings.push({
+        severity: "ok",
+        title: "Not duty limited",
+        detail: "Only " + high_duty_pct.toFixed(1) + "% of moving time above 95% duty (peak " +
+          array_max(duty).toFixed(0) + "%). Headroom remains."
+      });
+    }
+  }
+
+  var peak_motor_current = array_max(motor_current);
+  var clipped = count_where(motor_current, function (c) { return c >= peak_motor_current * 0.98; });
+  var clipped_pct = 100 * clipped / samples;
+  if (clipped_pct > 5) {
+    findings.push({
+      severity: "warning",
+      title: "Motor current is being clipped",
+      detail: clipped_pct.toFixed(1) + "% of samples sat at the " + peak_motor_current.toFixed(0) +
+        " A ceiling, which indicates a configured limit rather than a load limit.",
+      action: "Raising the motor current limit would give more acceleration, if the motor and controller can take the heat."
+    });
+  } else {
+    findings.push({
+      severity: "ok",
+      title: "Not current limited",
+      detail: "Peak motor current " + peak_motor_current.toFixed(1) + " A was only touched briefly (" +
+        clipped_pct.toFixed(1) + "% of samples)."
+    });
+  }
+
+  var resistance = estimate_pack_resistance(voltages, battery_current);
+  var peak_battery_current = array_max(battery_current);
+  var sag_at_peak = resistance * peak_battery_current;
+  var resting_voltage = array_max(voltages);
+  if (resistance > 0) {
+    var sag_pct = 100 * sag_at_peak / resting_voltage;
+    findings.push({
+      severity: sag_pct > 15 ? "warning" : "ok",
+      title: sag_pct > 15 ? "Significant battery sag" : "Battery sag acceptable",
+      detail: "Estimated pack resistance " + (resistance * 1000).toFixed(0) + " mΩ, giving about " +
+        sag_at_peak.toFixed(1) + " V sag (" + sag_pct.toFixed(1) + "%) at the " +
+        peak_battery_current.toFixed(0) + " A peak.",
+      action: sag_pct > 15 ?
+        "High sag costs top speed and stresses cells. Consider higher discharge cells, thicker leads, or better connections." : null
+    });
+  }
+
+  var cells = Math.round(resting_voltage / 4.2);
+  if (cells > 0) {
+    var min_cell = array_min(voltages) / cells;
+    findings.push({
+      severity: min_cell < 3.2 ? "warning" : "ok",
+      title: min_cell < 3.2 ? "Cells pulled low under load" : "Cell voltage stayed safe",
+      detail: "Minimum " + array_min(voltages).toFixed(1) + " V across an estimated " + cells +
+        "S pack is about " + min_cell.toFixed(2) + " V per cell.",
+      action: min_cell < 3.2 ?
+        "Sustained operation below 3.2 V per cell shortens pack life. Ease off earlier or raise the low voltage cutoff." : null
+    });
+  }
+
+  if (array_max(HorizontalAccuracies) > 0) {
+    var poor_fix_pct = 100 * count_where(HorizontalAccuracies, function (h) { return h > 5; }) / samples;
+    if (poor_fix_pct > 25) {
+      findings.push({
+        severity: "warning",
+        title: "GNSS accuracy is poor",
+        detail: poor_fix_pct.toFixed(1) + "% of samples had horizontal accuracy worse than 5 m (average " +
+          array_mean(HorizontalAccuracies).toFixed(1) + " m).",
+        action: "GPS speed and distance carry meaningful error here. Improve antenna placement for more trustworthy figures."
+      });
+    }
+  }
+
+  if (array_max(charged) - array_min(charged) < 0.01) {
+    findings.push({
+      severity: "info",
+      title: "No regenerative braking recorded",
+      detail: "Nothing was returned to the pack, which is expected for an efoil but worth checking on a board with brakes."
+    });
+  }
+
+  return findings;
+}
+
+function render_finding(finding) {
+  var el = document.createElement('div');
+  el.className = "finding " + finding.severity;
+
+  var title = document.createElement('div');
+  title.className = "finding_title";
+  title.textContent = finding.title;
+  el.appendChild(title);
+
+  var detail = document.createElement('div');
+  detail.className = "finding_detail";
+  detail.textContent = finding.detail;
+  el.appendChild(detail);
+
+  if (finding.action) {
+    var action = document.createElement('div');
+    action.className = "finding_action";
+    action.textContent = finding.action;
+    el.appendChild(action);
+  }
+  return el;
+}
+
+function render_performance() {
+  var container = document.getElementById('performance_content');
+  container.innerHTML = "";
+  if (Times.length === 0) {
+    return;
+  }
+
+  var speeds = data[5];
+  var distances = data[11];
+  var powers = data[12];
+  var voltages = data[6];
+  var watt_hours = data[9];
+
+  var duration = Times[Times.length - 1] - Times[0];
+  var distance = array_max(distances) - array_min(distances);
+  var energy_used = array_max(watt_hours) - array_min(watt_hours);
+
+  var findings = analyse_performance();
+  var problems = findings.filter(function (f) {
+    return f.severity === "critical" || f.severity === "warning";
+  });
+  container.appendChild(performance_heading("Analysis — " + (problems.length ?
+    problems.length + " issue" + (problems.length === 1 ? "" : "s") + " found" :
+    "no issues found")));
+  findings.forEach(function (finding) {
+    container.appendChild(render_finding(finding));
+  });
+
+  var moving_seconds = 0;
+  var moving_speeds = [];
+  for (var i = 1; i < Times.length; i++) {
+    var elapsed = Times[i] - Times[i - 1];
+    // Skip large gaps so merged logs don't inflate moving time.
+    if (elapsed > 0 && elapsed < 10 && speeds[i] > 1) {
+      moving_seconds += elapsed;
+      moving_speeds.push(speeds[i]);
+    }
+  }
+
+  container.appendChild(performance_heading("Session"));
+  container.appendChild(performance_card("Duration", format_duration(duration)));
+  container.appendChild(performance_card("Distance", distance.toFixed(2) + " km",
+    board_mode === "efoil" ? "from GNSS positions" : "from tachometer"));
+  container.appendChild(performance_card("Moving time", format_duration(moving_seconds),
+    "above 1 km/h"));
+  container.appendChild(performance_card("Samples", Times.length.toString()));
+
+  container.appendChild(performance_heading("Speed (" + names[4] + ")"));
+  container.appendChild(performance_card("Top speed", array_max(speeds).toFixed(1) + " km/h"));
+  container.appendChild(performance_card("Average moving",
+    (moving_speeds.length ? array_mean(moving_speeds) : 0).toFixed(1) + " km/h"));
+  container.appendChild(performance_card("Average overall", array_mean(speeds).toFixed(1) + " km/h"));
+
+  container.appendChild(performance_heading("Power and energy"));
+  container.appendChild(performance_card("Peak power", array_max(powers).toFixed(0) + " W"));
+  container.appendChild(performance_card("Average power", array_mean(powers).toFixed(0) + " W"));
+  container.appendChild(performance_card("Energy used", energy_used.toFixed(1) + " Wh"));
+  container.appendChild(performance_card("Efficiency",
+    distance > 0.01 ? (energy_used / distance).toFixed(1) + " Wh/km" : "—",
+    distance > 0.01 ? null : "distance too short"));
+
+  container.appendChild(performance_heading("Battery"));
+  container.appendChild(performance_card("Start voltage", voltages[0].toFixed(1) + " V"));
+  container.appendChild(performance_card("End voltage", voltages[voltages.length - 1].toFixed(1) + " V"));
+  container.appendChild(performance_card("Minimum voltage", array_min(voltages).toFixed(1) + " V",
+    "sag " + (array_max(voltages) - array_min(voltages)).toFixed(1) + " V"));
+  container.appendChild(performance_card("Peak battery current", array_max(data[3]).toFixed(1) + " A"));
+
+  container.appendChild(performance_heading("Drive"));
+  container.appendChild(performance_card("Peak motor current", array_max(data[2]).toFixed(1) + " A"));
+  container.appendChild(performance_card("Peak duty cycle", array_max(data[4]).toFixed(0) + " %"));
+  container.appendChild(performance_card("Peak controller temp", array_max(data[1]).toFixed(1) + " °C"));
+}
+
 function menu_click(e) {
   e.classList.toggle("change");
   if (menu_visible) {
@@ -258,6 +768,35 @@ function cb_change(e) {
 }
 
 function fill_menu() {
+  var menu = document.getElementById('menu_list');
+  menu.innerHTML = "";
+
+  var load_item = document.createElement('li');
+  var load_button = document.createElement('button');
+  load_button.type = "button";
+  load_button.textContent = "Load new log";
+  load_button.addEventListener('click', function () {
+    document.getElementById('files').click();
+  });
+  load_item.appendChild(load_button);
+  menu.appendChild(load_item);
+
+  var profile_item = document.createElement('li');
+  var profile_select = document.createElement('select');
+  profile_select.id = "board_mode_menu";
+  [["eskate", "E-skateboard"], ["efoil", "Efoil"]].forEach(function (choice) {
+    var option = document.createElement('option');
+    option.value = choice[0];
+    option.textContent = choice[1];
+    profile_select.appendChild(option);
+  });
+  profile_select.value = board_mode;
+  profile_select.addEventListener('change', function (e) {
+    set_board_mode(e.target.value);
+  });
+  profile_item.appendChild(profile_select);
+  menu.appendChild(profile_item);
+
   for (var i in names) {
     i = parseInt(i);
     var li = document.createElement('li');
@@ -273,7 +812,7 @@ function fill_menu() {
 
     li.appendChild(checkbox);
     li.appendChild(label);
-    document.getElementById('menu_list').appendChild(li);
+    menu.appendChild(li);
     if (series_shown[i]) {
       checkbox.checked = true;
       uplot.setSeries((i + 1), { show: true })
@@ -448,15 +987,17 @@ function generate_scales() {
 
 function get_window_size() {
   var height = document.getElementById("chart").offsetHeight;
+  var width = document.getElementById("chart").offsetWidth;
   var legend = document.getElementsByClassName("legend");
   if (legend.length > 0) {
     height = height - legend[0].offsetHeight;
   } else {
     height = height * 0.8
   }
+  // The chart can be rebuilt while its tab is hidden, which reports a zero size.
   return {
-    width: document.getElementById("chart").offsetWidth,
-    height: height,
+    width: width > 0 ? width : window.innerWidth,
+    height: height > 0 ? height : Math.round(window.innerHeight * 0.4),
   }
 }
 
@@ -503,10 +1044,10 @@ function parse_LogFile(txt, time) {
               li.innerHTML = ['<strong>', setting[0], '=</strong>', setting[1]].join("");
             }
           } else if (i == 1) {
-            names = lines[i].split(",")
+            base_names = lines[i].split(",")
             //sort out time,faults,elapsedTime,lat,long
-            names.splice(13, 4);
-            names.splice(0, 1);
+            base_names.splice(13, 4);
+            base_names.splice(0, 1);
           }
         }
         if (i > 1) {
@@ -521,6 +1062,7 @@ function parse_LogFile(txt, time) {
           if (values[15] != 0 && values[16] != 0) {
             Times.push(values[0]);
             TempPcbs.push(values[1]);
+            MotorTemps.push(0);
             MotorCurrents.push(values[2]);
             BatteryCurrents.push(values[3]);
             DutyCycles.push(values[4]);
@@ -537,6 +1079,7 @@ function parse_LogFile(txt, time) {
             latlngs.push([values[15], values[16]]);
             Altitudes.push(values[17]);
             GPSSpeeds.push(values[18]);
+            HorizontalAccuracies.push(0);
           } else {
             console.log("found invalid data:\n" + lines[i])
           }
@@ -550,7 +1093,7 @@ function parse_LogFile(txt, time) {
     filetime = time.getTime()
     starttime = 0
     console.log(filetime, time)
-    names = [
+    base_names = [
       "TempPcb",
       "MotorCurrent",
       "BatteryCurrent",
@@ -590,6 +1133,7 @@ function parse_LogFile(txt, time) {
             Times.push((filetime + values[0] - starttime) / 1000);
             InpVoltages.push(values[1]);
             TempPcbs.push(values[2]);
+            MotorTemps.push(values[6]);
             MotorCurrents.push(values[7]);
             BatteryCurrents.push(values[8]);
             DutyCycles.push(values[12] * 100);
@@ -605,6 +1149,7 @@ function parse_LogFile(txt, time) {
             latlngs.push([values[48], values[49]]);
             Altitudes.push(values[50]);
             GPSSpeeds.push(values[51] * 3.6);
+            HorizontalAccuracies.push(values[53]);
           } else {
             console.log("found invalid data:\n" + lines[i])
           }
@@ -628,18 +1173,61 @@ function append_file_content(files_arr) {
     for (i in files_arr) {
       parse_LogFile(files_arr[i].reader.result, files_arr[i].time)
     }
-    data = [Times, TempPcbs, MotorCurrents, BatteryCurrents, DutyCycles, Speeds, InpVoltages, AmpHours, AmpHoursCharged, WattHours, WattHoursCharged, Distances, Powers, Altitudes, GPSSpeeds]
+    compute_gnss_metrics();
+    apply_profile();
     create_map();
     create_chart();
     fill_menu();
     show_content();
+    show_tab("log");
   }
+}
+
+function reset_log_data() {
+  if (uplot) {
+    uplot.destroy();
+    uplot = null;
+  }
+  if (map) {
+    map.remove();
+    map = null;
+  }
+
+  Times = [];
+  TempPcbs = [];
+  MotorTemps = [];
+  MotorCurrents = [];
+  BatteryCurrents = [];
+  DutyCycles = [];
+  Speeds = [];
+  InpVoltages = [];
+  AmpHours = [];
+  AmpHoursCharged = [];
+  WattHours = [];
+  WattHoursCharged = [];
+  Distances = [];
+  Powers = [];
+  Faults = [];
+  TimePassedInMss = [];
+  latlngs = [];
+  Altitudes = [];
+  GPSSpeeds = [];
+  VerticalSpeeds = [];
+  HorizontalAccuracies = [];
+  GnssDistances = [];
+  names = [];
+  base_names = [];
+  data = [];
+  document.getElementById("settings_list").replaceChildren();
+  document.getElementById("performance_content").replaceChildren();
 }
 
 var files;
 function handleFileSelect(evt) {
+  reset_log_data();
   show_loader();
-  files = evt.target.files; // FileList object
+  files = Array.from(evt.target.files); // Copy before clearing the input.
+  evt.target.value = "";
   var files_arr = []
   // files is a FileList of File objects. List some properties.
   var output = [];
@@ -688,5 +1276,9 @@ if (window.location.search.length > 1) {
 } else {
   show_upload();
 }
+set_board_mode(board_mode);
 document.getElementById('files').addEventListener('change', handleFileSelect, false);
+document.getElementById('board_mode').addEventListener('change', function (event) {
+  set_board_mode(event.target.value);
+});
 window.addEventListener("resize", throttle(() => uplot.setSize(get_window_size()), 100));

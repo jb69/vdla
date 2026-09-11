@@ -19,6 +19,9 @@
   word-wrap: break-word;
   text-align: center;
 }
+.centered label, .centered select {
+  font-size: 1rem;
+}
 #content_sec {
   /* background: black;
   color: white; */
@@ -26,6 +29,97 @@
   text-align: center;
   height: 100%;
   width: 100%;
+}
+#tab_bar {
+  height: 36px;
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid #ddd;
+}
+.tab_button {
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  padding: 0 18px;
+  font-size: 14px;
+  cursor: pointer;
+  color: #666;
+}
+.tab_button.active {
+  border-bottom-color: #3498db;
+  color: #111;
+  font-weight: 600;
+}
+#log_view {
+  height: calc(100% - 36px);
+}
+#performance_view {
+  height: calc(100% - 36px);
+  display: none;
+  overflow-y: auto;
+}
+#performance_content {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+  padding: 16px;
+  text-align: left;
+}
+.perf_heading {
+  grid-column: 1 / -1;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #888;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 4px;
+}
+.perf_card {
+  border: 1px solid #e2e2e2;
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.perf_label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #777;
+}
+.perf_value {
+  font-size: 22px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+.perf_note {
+  font-size: 11px;
+  color: #999;
+  margin-top: 2px;
+}
+.finding {
+  grid-column: 1 / -1;
+  border: 1px solid #e2e2e2;
+  border-left-width: 4px;
+  border-radius: 6px;
+  padding: 10px 14px;
+  background: #fafafa;
+}
+.finding.critical { border-left-color: #e74c3c; }
+.finding.warning { border-left-color: #f39c12; }
+.finding.ok { border-left-color: #27ae60; }
+.finding.info { border-left-color: #95a5a6; }
+.finding_title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.finding_detail {
+  font-size: 13px;
+  color: #555;
+  margin-top: 3px;
+}
+.finding_action {
+  font-size: 12px;
+  color: #777;
+  margin-top: 5px;
 }
 #mapid {
    height: 50%;
