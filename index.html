@@ -49,8 +49,13 @@
         </div>
       </div>
       <div id="tab_bar">
+        <button id="tab_overview" class="tab_button" onclick="show_tab('overview')">Overview</button>
         <button id="tab_log" class="tab_button active" onclick="show_tab('log')">Log</button>
         <button id="tab_performance" class="tab_button" onclick="show_tab('performance')">Performance</button>
+      </div>
+      <div id="overview_view">
+        <div id="overview_content"></div>
+        <div id="overview_chart"></div>
       </div>
       <div id="log_view">
         <div id="mapid"></div>

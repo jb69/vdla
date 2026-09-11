@@ -40,6 +40,7 @@ var map;
 var uplot;
 var menu_visible = false;
 var map_popup;
+var overview_plot;
 var active_tab = "log";
 var FAULT_NAMES = {
   1: "Over voltage",
@@ -282,6 +283,9 @@ function set_board_mode(mode) {
   uplot.destroy();
   create_chart();
   fill_menu();
+  if (active_tab === "overview") {
+    render_overview();
+  }
   if (active_tab === "performance") {
     render_performance();
   }
@@ -354,11 +358,17 @@ function show_content() {
 
 function show_tab(tab) {
   active_tab = tab;
+  document.getElementById("tab_overview").classList.toggle("active", tab === "overview");
   document.getElementById("tab_log").classList.toggle("active", tab === "log");
   document.getElementById("tab_performance").classList.toggle("active", tab === "performance");
+  document.getElementById("overview_view").style.display = tab === "overview" ? "block" : "none";
   document.getElementById("log_view").style.display = tab === "log" ? "block" : "none";
   document.getElementById("performance_view").style.display = tab === "performance" ? "block" : "none";
 
+  if (tab === "overview") {
+    render_overview();
+    return;
+  }
   if (tab === "performance") {
     render_performance();
     return;
@@ -437,6 +447,58 @@ function performance_card(label, value, note) {
     card.appendChild(note_el);
   }
   return card;
+}
+
+function render_overview() {
+  var container = document.getElementById("overview_content");
+  var chart_container = document.getElementById("overview_chart");
+  container.innerHTML = "";
+  if (overview_plot) {
+    overview_plot.destroy();
+    overview_plot = null;
+  }
+  if (Times.length === 0) {
+    chart_container.innerHTML = "";
+    return;
+  }
+
+  var speeds = data[5];
+  var powers = data[12];
+  var distance = array_max(data[11]) - array_min(data[11]);
+  var duration = Times[Times.length - 1] - Times[0];
+  var peak_speed = array_max(speeds);
+  var peak_power = array_max(powers);
+
+  container.appendChild(performance_card("Distance", distance.toFixed(2) + " km",
+    board_mode === "efoil" ? "GNSS route distance" : "tacho distance"));
+  container.appendChild(performance_card("Top speed", peak_speed.toFixed(1) + " km/h",
+    names[4] + " peak"));
+  container.appendChild(performance_card("Peak power", peak_power.toFixed(0) + " W",
+    format_duration(duration) + " session"));
+
+  chart_container.innerHTML = "";
+  var width = chart_container.offsetWidth || window.innerWidth;
+  overview_plot = new uPlot({
+    id: "overview_plot",
+    width: width,
+    height: 300,
+    scales: {
+      x: { time: true },
+      speed: { auto: true },
+      power: { auto: true },
+    },
+    axes: [
+      { stroke: "#6f858a", grid: { stroke: "#e7efee" } },
+      { scale: "speed", stroke: "#087f8c", label: "Speed (km/h)" },
+      { scale: "power", side: 1, stroke: "#e28b45", label: "Power (W)" },
+    ],
+    series: [
+      {},
+      { label: names[4], scale: "speed", stroke: "#087f8c", width: 2, fill: "rgba(8, 127, 140, 0.12)" },
+      { label: "Power", scale: "power", stroke: "#e28b45", width: 2 },
+    ],
+    cursor: { y: false },
+  }, [Times, speeds, powers], chart_container);
 }
 
 function count_where(arr, predicate) {
@@ -1192,6 +1254,10 @@ function reset_log_data() {
     map.remove();
     map = null;
   }
+  if (overview_plot) {
+    overview_plot.destroy();
+    overview_plot = null;
+  }
 
   Times = [];
   TempPcbs = [];
@@ -1218,6 +1284,8 @@ function reset_log_data() {
   names = [];
   base_names = [];
   data = [];
+  document.getElementById("overview_content").replaceChildren();
+  document.getElementById("overview_chart").replaceChildren();
   document.getElementById("settings_list").replaceChildren();
   document.getElementById("performance_content").replaceChildren();
 }
@@ -1281,4 +1349,14 @@ document.getElementById('files').addEventListener('change', handleFileSelect, fa
 document.getElementById('board_mode').addEventListener('change', function (event) {
   set_board_mode(event.target.value);
 });
-window.addEventListener("resize", throttle(() => uplot.setSize(get_window_size()), 100));
+window.addEventListener("resize", throttle(() => {
+  if (uplot) {
+    uplot.setSize(get_window_size());
+  }
+  if (overview_plot) {
+    overview_plot.setSize({
+      width: document.getElementById("overview_chart").offsetWidth - 36,
+      height: 300,
+    });
+  }
+}, 100));
