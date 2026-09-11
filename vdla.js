@@ -1,5 +1,21 @@
 var saved_board_mode = localStorage.getItem("vdla-board-mode");
 var board_mode = saved_board_mode === "efoil" ? "efoil" : "eskate";
+var saved_series_visibility = localStorage.getItem("vdla-series-visibility");
+var series_visibility = {};
+try {
+  var parsed_series_visibility = saved_series_visibility ? JSON.parse(saved_series_visibility) : {};
+  series_visibility = parsed_series_visibility && typeof parsed_series_visibility === "object" && !Array.isArray(parsed_series_visibility) ? parsed_series_visibility : {};
+} catch (error) {
+  series_visibility = {};
+}
+var saved_legend_visibility = localStorage.getItem("vdla-legend-visibility");
+var legend_visibility = {};
+try {
+  var parsed_legend_visibility = saved_legend_visibility ? JSON.parse(saved_legend_visibility) : {};
+  legend_visibility = parsed_legend_visibility && typeof parsed_legend_visibility === "object" && !Array.isArray(parsed_legend_visibility) ? parsed_legend_visibility : {};
+} catch (error) {
+  legend_visibility = {};
+}
 var units = ["°C", "A", "A", "%", "km/h", "V", "Ah", "Ah", "Wh", "Wh", "km", "W", "m", "km/h"]
 var axes_names = units.filter(function (item, pos, self) {
   return self.indexOf(item) == pos;
@@ -351,6 +367,11 @@ function apply_profile() {
       InpVoltages, AmpHours, AmpHoursCharged, WattHours, WattHoursCharged,
       Distances, Powers, Altitudes, GPSSpeeds];
   }
+  names.forEach(function (name, index) {
+    if (Object.prototype.hasOwnProperty.call(series_visibility, name)) {
+      series_shown[index] = series_visibility[name] !== false;
+    }
+  });
   axes_names = units.filter(function (item, pos, self) {
     return self.indexOf(item) === pos;
   });
@@ -449,7 +470,7 @@ function show_tab(tab) {
   document.getElementById("tab_log").classList.toggle("active", tab === "log");
   document.getElementById("tab_performance").classList.toggle("active", tab === "performance");
   document.getElementById("overview_view").style.display = tab === "overview" ? "block" : "none";
-  document.getElementById("log_view").style.display = tab === "log" ? "block" : "none";
+  document.getElementById("log_view").style.display = tab === "log" ? "flex" : "none";
   document.getElementById("performance_view").style.display = tab === "performance" ? "block" : "none";
 
   if (tab === "overview") {
@@ -905,14 +926,27 @@ function menu_click(e) {
 }
 
 function cb_change(e) {
-  if (event.target.checked) {
-    var i = names.indexOf(e.target.id.substr(3))
-    uplot.setSeries((i + 1), { show: true })
-    series_shown[i] = true;
-  } else {
-    var i = names.indexOf(e.target.id.substr(3))
-    uplot.setSeries((i + 1), { show: false })
-    series_shown[i] = false;
+  var metric_name = e.target.id.substr(3);
+  var i = names.indexOf(metric_name);
+  var is_shown = e.target.checked;
+  uplot.setSeries((i + 1), { show: is_shown });
+  series_shown[i] = is_shown;
+  series_visibility[metric_name] = is_shown;
+  localStorage.setItem('vdla-series-visibility', JSON.stringify(series_visibility));
+}
+
+function update_legend_visibility() {
+  var legend = document.querySelector('#chart .legend.inline');
+  if (legend) {
+    var rows = legend.querySelectorAll('tr.series');
+    rows.forEach(function (row) {
+      var label = row.querySelector('th');
+      var metric_name = label ? label.textContent.trim() : '';
+      row.classList.toggle('legend-item-hidden', legend_visibility[metric_name] === false);
+    });
+  }
+  if (uplot) {
+    uplot.setSize(get_window_size());
   }
 }
 
@@ -967,6 +1001,24 @@ function fill_menu() {
 
     li.appendChild(checkbox);
     li.appendChild(label);
+
+    var legend_checkbox = document.createElement('input');
+    legend_checkbox.type = 'checkbox';
+    legend_checkbox.id = 'legend_cb_' + i;
+    legend_checkbox.dataset.metric = names[i];
+    legend_checkbox.checked = legend_visibility[names[i]] !== false;
+    legend_checkbox.title = 'Show ' + names[i] + ' in interactive legend';
+    legend_checkbox.addEventListener('change', function (event) {
+      var metric_name = event.target.dataset.metric;
+      legend_visibility[metric_name] = event.target.checked;
+      localStorage.setItem('vdla-legend-visibility', JSON.stringify(legend_visibility));
+      update_legend_visibility();
+    });
+    var legend_label = document.createElement('label');
+    legend_label.htmlFor = legend_checkbox.id;
+    legend_label.appendChild(document.createTextNode('Legend'));
+    li.appendChild(legend_checkbox);
+    li.appendChild(legend_label);
     menu.appendChild(li);
     if (series_shown[i]) {
       checkbox.checked = true;
@@ -1156,6 +1208,16 @@ function get_window_size() {
   }
 }
 
+function persist_series_visibility() {
+  if (!uplot) {
+    return;
+  }
+  names.forEach(function (name, index) {
+    series_visibility[name] = uplot.series[index + 1].show !== false;
+  });
+  localStorage.setItem('vdla-series-visibility', JSON.stringify(series_visibility));
+}
+
 function create_chart() {
   var opts = {
     id: "plot",
@@ -1170,6 +1232,9 @@ function create_chart() {
     series: generate_series(),
     axes: generate_axes(false),
     scales: generate_scales(),
+    hooks: {
+      setSeries: [persist_series_visibility],
+    },
   };
 
   uplot = new uPlot(opts, data, document.getElementById("chart"));
@@ -1179,6 +1244,7 @@ function create_chart() {
       update_map_popup(curr_plot_indx);
     }
   });
+  update_legend_visibility();
   uplot.setSize(get_window_size());
 }
 
@@ -1448,6 +1514,67 @@ document.getElementById('playback_restart').addEventListener('click', restart_pl
 document.getElementById('playback_speed').addEventListener('change', function (event) {
   playback_speed = parseFloat(event.target.value);
 });
+function resize_log_panes(map_height) {
+  var log_view = document.getElementById('log_view');
+  var map_pane = document.getElementById('mapid');
+  var chart_pane = document.getElementById('chart_container');
+  var handle = document.getElementById('split_handle');
+  var styles = getComputedStyle(log_view);
+  var available_height = log_view.clientHeight - parseFloat(styles.paddingTop) - parseFloat(styles.paddingBottom);
+  var handle_height = handle.offsetHeight;
+  var min_map_height = 120;
+  var min_chart_height = 160;
+  var max_map_height = available_height - handle_height - min_chart_height;
+  var next_height = Math.max(min_map_height, Math.min(map_height, max_map_height));
+  map_pane.style.flexBasis = next_height + 'px';
+  chart_pane.style.flexBasis = 'auto';
+  handle.setAttribute('aria-valuenow', Math.round(next_height));
+  if (map) {
+    map.invalidateSize({ pan: false });
+  }
+  if (uplot) {
+    uplot.setSize(get_window_size());
+  }
+}
+
+function setup_log_splitter() {
+  var log_view = document.getElementById('log_view');
+  var handle = document.getElementById('split_handle');
+  var dragging = false;
+  var start_height = 0;
+  var start_y = 0;
+
+  handle.addEventListener('pointerdown', function (event) {
+    dragging = true;
+    start_y = event.clientY;
+    start_height = document.getElementById('mapid').getBoundingClientRect().height;
+    handle.setPointerCapture(event.pointerId);
+    document.body.classList.add('resizing-log-panes');
+    event.preventDefault();
+  });
+  handle.addEventListener('pointermove', function (event) {
+    if (dragging) {
+      resize_log_panes(start_height + event.clientY - start_y);
+    }
+  });
+  handle.addEventListener('pointerup', function (event) {
+    dragging = false;
+    handle.releasePointerCapture(event.pointerId);
+    document.body.classList.remove('resizing-log-panes');
+  });
+  handle.addEventListener('keydown', function (event) {
+    var step = event.shiftKey ? 50 : 20;
+    var current_height = document.getElementById('mapid').getBoundingClientRect().height;
+    if (event.key === 'ArrowUp') {
+      resize_log_panes(current_height - step);
+      event.preventDefault();
+    } else if (event.key === 'ArrowDown') {
+      resize_log_panes(current_height + step);
+      event.preventDefault();
+    }
+  });
+}
+setup_log_splitter();
 window.addEventListener("resize", throttle(() => {
   if (uplot) {
     uplot.setSize(get_window_size());
