@@ -86,7 +86,7 @@ var FAULT_NAMES = {
 //uplot plugins
 function touchZoomPlugin(opts) {
   function init(u, opts, data) {
-    let plot = u.root.querySelector(".over");
+    let plot = u.over || u.root.querySelector(".over");
     let rect, oxRange, oyRange, xVal, yVal;
     let fr = { x: 0, y: 0, dx: 0, dy: 0 };
     let to = { x: 0, y: 0, dx: 0, dy: 0 };
@@ -485,9 +485,7 @@ function show_tab(tab) {
   if (map) {
     map.invalidateSize();
   }
-  if (uplot) {
-    uplot.setSize(get_window_size());
-  }
+  resize_uplot();
 }
 
 function array_min(arr) {
@@ -945,9 +943,7 @@ function update_legend_visibility() {
       row.classList.toggle('legend-item-hidden', legend_visibility[metric_name] === false);
     });
   }
-  if (uplot) {
-    uplot.setSize(get_window_size());
-  }
+  resize_uplot();
 }
 
 function fill_menu() {
@@ -1208,6 +1204,16 @@ function get_window_size() {
   }
 }
 
+function resize_uplot() {
+  if (!uplot) return;
+  cancelAnimationFrame(resize_uplot.frame);
+  resize_uplot.frame = requestAnimationFrame(function () {
+    if (uplot) {
+      uplot.setSize(get_window_size());
+    }
+  });
+}
+
 function persist_series_visibility() {
   if (!uplot) {
     return;
@@ -1245,7 +1251,7 @@ function create_chart() {
     }
   });
   update_legend_visibility();
-  uplot.setSize(get_window_size());
+  resize_uplot();
 }
 
 function parse_LogFile(txt, time) {
@@ -1532,9 +1538,7 @@ function resize_log_panes(map_height) {
   if (map) {
     map.invalidateSize({ pan: false });
   }
-  if (uplot) {
-    uplot.setSize(get_window_size());
-  }
+  resize_uplot();
 }
 
 function setup_log_splitter() {
@@ -1575,10 +1579,10 @@ function setup_log_splitter() {
   });
 }
 setup_log_splitter();
+var chart_resize_observer = new ResizeObserver(resize_uplot);
+chart_resize_observer.observe(document.getElementById("chart_container"));
 window.addEventListener("resize", throttle(() => {
-  if (uplot) {
-    uplot.setSize(get_window_size());
-  }
+  resize_uplot();
   if (overview_plot) {
     overview_plot.setSize({
       width: document.getElementById("overview_chart").offsetWidth - 36,
