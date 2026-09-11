@@ -49,8 +49,12 @@ button, select, input { font: inherit; }
 .finding_title { font-size: 14px; font-weight: 600; } .finding_detail { margin-top: 3px; color: #4f696e; font-size: 13px; } .finding_action { margin-top: 5px; color: var(--muted); font-size: 12px; }
 
 #mapid { height: 54%; overflow: hidden; border-radius: 12px 12px 0 0; box-shadow: var(--shadow); }
-#chart_container { display: inline-block; width: 100%; height: 46%; overflow: hidden; border-radius: 0 0 12px 12px; background: var(--surface); box-shadow: 0 8px 24px rgba(24,65,70,.08); }
-#chart { width: 100%; height: 100%; }
+#chart_container { position: relative; display: inline-block; width: 100%; height: 46%; overflow-x: hidden; overflow-y: auto; border-radius: 0 0 12px 12px; background: var(--surface); box-shadow: 0 8px 24px rgba(24,65,70,.08); }
+#playback_controls { display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 6px 12px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.94); color: var(--muted); font-size: 12px; }
+#playback_controls button, #playback_controls select { padding: 5px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); cursor: pointer; }
+#playback_controls button:hover, #playback_controls select:hover { border-color: var(--accent); }
+#playback_status { margin-left: auto; color: var(--muted); white-space: nowrap; }
+#chart { width: 100%; height: calc(100% - 42px); }
 .loader { width: 72px; height: 72px; margin: auto; border: 10px solid #dcebea; border-top-color: var(--accent); border-radius: 50%; animation: spin 2s linear infinite; }
 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
@@ -61,16 +65,23 @@ button, select, input { font: inherit; }
 #menu_list button, #menu_list select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--ink); cursor: pointer; text-align: left; }
 #menu_list button:hover, #menu_list select:hover { border-color: var(--accent); background: #f1fbfa; }
 #menu_list input { margin-right: 7px; accent-color: var(--accent); }
+.file_picker_input { position: fixed; left: -10000px; top: 0; width: 1px !important; height: 1px; opacity: 0; }
 .menu_icon_container { float: right; padding: 7px 9px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); box-shadow: 0 5px 16px rgba(24,65,70,.12); cursor: pointer; }
 .bar1, .bar2, .bar3 { width: 22px; height: 3px; margin: 4px 0; background-color: var(--accent-dark); transition: .4s; }
 .change .bar1 { transform: rotate(-45deg) translate(-5px, 5px); } .change .bar2 { opacity: 0; } .change .bar3 { transform: rotate(45deg) translate(-5px, -5px); }
 #settings_list { display: flex; flex-direction: column; flex-wrap: wrap; height: 100px; }
 #uplot_creds { position: absolute; right: 12px; bottom: 6px; font-size: 11px; }
-.uplot .legend.inline { display: flex; flex-wrap: wrap; gap: 3px 12px; max-width: 100%; padding: 5px 10px; font-size: 11px; }
+.uplot .legend.inline { display: grid !important; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); grid-auto-rows: max-content; align-content: start; gap: 3px 12px; width: 100%; max-width: 100%; overflow: visible; padding: 5px 10px; font-size: 11px; white-space: normal; }
+.uplot .legend.inline tr.series { display: flex !important; align-items: center; min-width: 0; margin-right: 0; }
+.uplot .legend.inline tr.series th, .uplot .legend.inline tr.series td { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 @media (max-width: 640px) {
   #log_view { padding: 6px; }
   #mapid, #chart_container { height: 50%; }
+  #playback_controls { gap: 5px; padding: 5px 7px; }
+  #playback_controls label { display: none; }
+  #playback_status { overflow: hidden; text-overflow: ellipsis; }
+  #chart .uplot .legend.inline { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px 6px; padding: 4px 6px; }
   #overview_view { padding: 14px; }
   #overview_content { grid-template-columns: 1fr; gap: 10px; }
   #overview_chart { padding: 10px 8px; }

@@ -36,6 +36,11 @@ var base_names = [];
 var data = [];
 var curr_plot_indx = 0;
 var curr_map_indx = 0;
+var playback_running = false;
+var playback_request;
+var playback_started_at = 0;
+var playback_origin_time = 0;
+var playback_speed = 1;
 var map;
 var uplot;
 var menu_visible = false;
@@ -180,6 +185,88 @@ function touchZoomPlugin(opts) {
       init
     }
   };
+}
+
+function update_playback_status(index) {
+  var status = document.getElementById("playback_status");
+  if (!status || !Times.length) return;
+  status.textContent = new Date(Times[index] * 1000).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+
+function set_playback_index(index) {
+  if (!uplot || !Times.length) return;
+  index = Math.max(0, Math.min(index, Times.length - 1));
+  update_map_popup(index);
+  curr_plot_indx = index;
+  uplot.setCursor({ left: uplot.valToPos(Times[index], "x"), top: 0 });
+  update_playback_status(index);
+}
+
+function stop_playback() {
+  playback_running = false;
+  if (playback_request) {
+    cancelAnimationFrame(playback_request);
+    playback_request = null;
+  }
+  var toggle = document.getElementById("playback_toggle");
+  if (toggle) {
+    toggle.textContent = "Play";
+    toggle.setAttribute("aria-label", "Play log");
+  }
+}
+
+function playback_frame(timestamp) {
+  if (!playback_running || !Times.length) return;
+  var target_time = playback_origin_time + (timestamp - playback_started_at) / 1000 * playback_speed;
+  var index = 0;
+  var low = 0;
+  var high = Times.length - 1;
+  while (low <= high) {
+    var middle = Math.floor((low + high) / 2);
+    if (Times[middle] <= target_time) {
+      index = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  set_playback_index(index);
+  if (target_time >= Times[Times.length - 1]) {
+    stop_playback();
+    set_playback_index(Times.length - 1);
+    return;
+  }
+  playback_request = requestAnimationFrame(playback_frame);
+}
+
+function start_playback() {
+  if (!uplot || Times.length < 2) return;
+  if (curr_plot_indx >= Times.length - 1) curr_plot_indx = 0;
+  playback_running = true;
+  playback_origin_time = Times[curr_plot_indx];
+  playback_started_at = performance.now();
+  var toggle = document.getElementById("playback_toggle");
+  toggle.textContent = "Pause";
+  toggle.setAttribute("aria-label", "Pause log");
+  playback_request = requestAnimationFrame(playback_frame);
+}
+
+function toggle_playback() {
+  if (playback_running) {
+    stop_playback();
+  } else {
+    start_playback();
+  }
+}
+
+function restart_playback() {
+  stop_playback();
+  curr_plot_indx = 0;
+  set_playback_index(0);
 }
 
 //utils
@@ -833,6 +920,12 @@ function fill_menu() {
   var menu = document.getElementById('menu_list');
   menu.innerHTML = "";
 
+  var file_input = document.getElementById('files');
+  if (file_input.parentElement !== document.body) {
+    document.body.appendChild(file_input);
+  }
+  file_input.classList.add('file_picker_input');
+
   var load_item = document.createElement('li');
   var load_button = document.createElement('button');
   load_button.type = "button";
@@ -1246,6 +1339,7 @@ function append_file_content(files_arr) {
 }
 
 function reset_log_data() {
+  stop_playback();
   if (uplot) {
     uplot.destroy();
     uplot = null;
@@ -1348,6 +1442,11 @@ set_board_mode(board_mode);
 document.getElementById('files').addEventListener('change', handleFileSelect, false);
 document.getElementById('board_mode').addEventListener('change', function (event) {
   set_board_mode(event.target.value);
+});
+document.getElementById('playback_toggle').addEventListener('click', toggle_playback);
+document.getElementById('playback_restart').addEventListener('click', restart_playback);
+document.getElementById('playback_speed').addEventListener('change', function (event) {
+  playback_speed = parseFloat(event.target.value);
 });
 window.addEventListener("resize", throttle(() => {
   if (uplot) {

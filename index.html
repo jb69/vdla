@@ -60,6 +60,19 @@
       <div id="log_view">
         <div id="mapid"></div>
         <div id="chart_container">
+          <div id="playback_controls" aria-label="Log playback controls">
+            <button id="playback_toggle" type="button" aria-label="Play log">Play</button>
+            <button id="playback_restart" type="button">Restart</button>
+            <label for="playback_speed">Speed</label>
+            <select id="playback_speed">
+              <option value="0.25">Slowmo 0.25x</option>
+              <option value="1" selected>Realtime 1x</option>
+              <option value="2">Fast 2x</option>
+              <option value="4">High speed 4x</option>
+              <option value="10">High speed 10x</option>
+            </select>
+            <output id="playback_status" aria-live="polite">Ready</output>
+          </div>
           <div id="chart" class="chartclass"></div>
           <span id="uplot_creds"><a href="https://github.com/leeoniya/uPlot" title="A small fast chart for time series, lines, areas, ohlc & bars">uPlot</a></span>
         </div>
