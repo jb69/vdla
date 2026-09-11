@@ -747,10 +747,10 @@ function render_performance() {
 function menu_click(e) {
   e.classList.toggle("change");
   if (menu_visible) {
-    document.getElementById("menu_list").style.visibility = "hidden";
+    document.getElementById("menu_list_container").style.visibility = "hidden";
     menu_visible = false;
   } else {
-    document.getElementById("menu_list").style.visibility = "visible";
+    document.getElementById("menu_list_container").style.visibility = "visible";
     menu_visible = true;
   }
 }
