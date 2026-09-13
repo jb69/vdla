@@ -1,5 +1,9 @@
 var saved_board_mode = localStorage.getItem("vdla-board-mode");
 var board_mode = saved_board_mode === "efoil" ? "efoil" : "eskate";
+var saved_efoil_wing_area = parseFloat(localStorage.getItem("vdla-efoil-wing-area"));
+var efoil_wing_area = Number.isFinite(saved_efoil_wing_area) && saved_efoil_wing_area > 0 ? saved_efoil_wing_area : 0;
+var EFOIL_MOTOR_EFFICIENCY = 0.9;
+var EFOIL_WATER_DENSITY = 1025;
 var saved_series_visibility = localStorage.getItem("vdla-series-visibility");
 var series_visibility = {};
 try {
@@ -20,8 +24,8 @@ var units = ["°C", "A", "A", "%", "km/h", "V", "Ah", "Ah", "Wh", "Wh", "km", "W
 var axes_names = units.filter(function (item, pos, self) {
   return self.indexOf(item) == pos;
 })
-var colors = ["red", "purple", "green", "lime", "navy", "blue", "orange", "cyan", "darkcyan", "olive", "yellow", "teal", "maroon", "fuchsia"]
-var fill = ["rgba(255, 0, 0, 0.3)", "rgba(128, 0, 128, 0.3)", "rgba(0, 128, 0, 0.3)", "rgba(0, 255, 0, 0.3)", "rgba(0, 0, 128, 0.3)", "rgba(0, 0, 255, 0.3)", "rgba(255, 165, 0, 0.3)", "rgba(0, 255, 255, 0.3)", "rgba(0, 139, 139, 0.3)", "rgba(128, 128, 0, 0.3)", "rgba(255, 255, 0, 0.3)", "rgba(0, 128, 128, 0.3)", "rgba(128, 0, 0, 0.3)", "rgba(255, 0, 255, 0.3)"]
+var colors = ["red", "purple", "green", "lime", "navy", "blue", "orange", "cyan", "darkcyan", "olive", "yellow", "teal", "maroon", "fuchsia", "gray", "darkgreen", "gold"]
+var fill = ["rgba(255, 0, 0, 0.3)", "rgba(128, 0, 128, 0.3)", "rgba(0, 128, 0, 0.3)", "rgba(0, 255, 0, 0.3)", "rgba(0, 0, 128, 0.3)", "rgba(0, 0, 255, 0.3)", "rgba(255, 165, 0, 0.3)", "rgba(0, 255, 255, 0.3)", "rgba(0, 139, 139, 0.3)", "rgba(128, 128, 0, 0.3)", "rgba(255, 255, 0, 0.3)", "rgba(0, 128, 128, 0.3)", "rgba(128, 0, 0, 0.3)", "rgba(255, 0, 255, 0.3)", "rgba(128, 128, 128, 0.3)", "rgba(0, 100, 0, 0.3)", "rgba(255, 215, 0, 0.3)"]
 var series_shown = [true, false, true, true, true, true, false, false, false, false, false, true, false, false];
 var default_units = units.slice();
 var default_series_shown = series_shown.slice();
@@ -39,6 +43,8 @@ var WattHours = [];
 var WattHoursCharged = [];
 var Distances = [];
 var Powers = [];
+var LiftCoefficients = [];
+var EfficiencyWhKm = [];
 var Faults = [];
 var TimePassedInMss = [];
 var latlngs = [];
@@ -356,9 +362,18 @@ function apply_profile() {
     ];
     units = ["°C", "A", "A", "%", "km/h", "V", "Ah", "Ah", "Wh", "Wh", "km", "W", "m", "m/s", "m"];
     series_shown = [true, false, true, true, true, true, false, false, false, false, true, true, false, false, false];
+    LiftCoefficients = calculate_efoil_lift_coefficients(Powers, GPSSpeeds);
+    EfficiencyWhKm = calculate_efficiency_wh_km(Powers, GPSSpeeds);
     data = [Times, TempPcbs, MotorCurrents, BatteryCurrents, DutyCycles, GPSSpeeds,
       InpVoltages, AmpHours, AmpHoursCharged, WattHours, WattHoursCharged,
-      GnssDistances, Powers, Altitudes, VerticalSpeeds, HorizontalAccuracies];
+      GnssDistances, Powers, Altitudes, VerticalSpeeds, HorizontalAccuracies,
+      LiftCoefficients, EfficiencyWhKm];
+    names.push("LiftCoefficient");
+    units.push("Cl");
+    series_shown.push(true);
+    names.push("EfficiencyWhKm");
+    units.push("Wh/km");
+    series_shown.push(true);
   } else {
     names = base_names.slice();
     units = default_units.slice();
@@ -366,6 +381,11 @@ function apply_profile() {
     data = [Times, TempPcbs, MotorCurrents, BatteryCurrents, DutyCycles, Speeds,
       InpVoltages, AmpHours, AmpHoursCharged, WattHours, WattHoursCharged,
       Distances, Powers, Altitudes, GPSSpeeds];
+    EfficiencyWhKm = calculate_efficiency_wh_km(Powers, Speeds);
+    data.push(EfficiencyWhKm);
+    names.push("EfficiencyWhKm");
+    units.push("Wh/km");
+    series_shown.push(true);
   }
   names.forEach(function (name, index) {
     if (Object.prototype.hasOwnProperty.call(series_visibility, name)) {
@@ -555,6 +575,49 @@ function performance_card(label, value, note) {
   return card;
 }
 
+function calculate_efoil_lift_coefficients(powers, speeds) {
+  var coefficients = [];
+  for (var i = 0; i < powers.length; i++) {
+    var speed_ms = speeds[i] / 3.6;
+    coefficients.push(efoil_wing_area > 0 && speed_ms > 0 ?
+      powers[i] * EFOIL_MOTOR_EFFICIENCY /
+      (EFOIL_WATER_DENSITY * efoil_wing_area * speed_ms) : null);
+  }
+  return coefficients;
+}
+
+function calculate_efficiency_wh_km(powers, speeds) {
+  var efficiency = [];
+  for (var i = 0; i < powers.length; i++) {
+    efficiency.push(speeds[i] > 0 ? powers[i] / speeds[i] : null);
+  }
+  return efficiency;
+}
+
+function efoil_lift_coefficient(coefficients) {
+  if (board_mode !== "efoil" || efoil_wing_area <= 0) {
+    return null;
+  }
+  var valid_coefficients = coefficients.filter(function (coefficient) {
+    return coefficient !== null;
+  });
+  if (valid_coefficients.length === 0) {
+    return null;
+  }
+  return array_mean(valid_coefficients);
+}
+
+function update_efoil_lift_coefficients() {
+  if (board_mode !== "efoil" || !data.length) {
+    return;
+  }
+  LiftCoefficients = calculate_efoil_lift_coefficients(Powers, GPSSpeeds);
+  data[names.indexOf("LiftCoefficient") + 1] = LiftCoefficients;
+  if (uplot) {
+    uplot.setData(data);
+  }
+}
+
 function render_overview() {
   var container = document.getElementById("overview_content");
   var chart_container = document.getElementById("overview_chart");
@@ -631,6 +694,92 @@ function estimate_pack_resistance(voltages, currents) {
   return -numerator / denominator;
 }
 
+var EFOIL_FLIGHT_SPEED_FLOOR = 10;
+var EFOIL_FLIGHT_SPEED_TYPICAL = 15;
+var EFOIL_PLOW_SPEED_MIN = 3;
+var EFOIL_FLIGHT_DIP_TOLERANCE = 2;
+var EFOIL_MIN_FLIGHT_SECONDS = 3;
+var EFOIL_TAKEOFF_SPEED_JUMP = 3;
+var EFOIL_TAKEOFF_CURRENT_DROP = 0.15;
+var EFOIL_TAKEOFF_LIFT_DROP = 0.15;
+var EFOIL_TAKEOFF_LOOKBACK_SECONDS = 3;
+
+function mean_of_valid(arr, from, to) {
+  var total = 0;
+  var count = 0;
+  for (var i = from; i < to; i++) {
+    if (arr[i] != null && isFinite(arr[i])) {
+      total += arr[i];
+      count++;
+    }
+  }
+  return count ? total / count : null;
+}
+
+// Flight is a sustained low-drag state: the board rises clear of the water, so speed increases
+// while motor current and lift coefficient both fall. All three must occur together and hold.
+// Typical flight is around 15 km/h, but that is indicative only; 10 km/h is a hard reject floor.
+function detect_efoil_takeoffs(speeds, motor_current, coefficients) {
+  if (board_mode !== "efoil") {
+    return [];
+  }
+  var events = [];
+  var i = 1;
+  while (i < speeds.length) {
+    var pre_start = i;
+    while (pre_start > 0 && Times[i] - Times[pre_start - 1] <= EFOIL_TAKEOFF_LOOKBACK_SECONDS) {
+      pre_start--;
+    }
+    var before_speed = mean_of_valid(speeds, pre_start, i);
+    // Compare against a board already under way, not a launch from standstill.
+    if (before_speed == null || before_speed < EFOIL_PLOW_SPEED_MIN) {
+      i++;
+      continue;
+    }
+    var hold_speed = Math.max(EFOIL_FLIGHT_SPEED_FLOOR, before_speed + EFOIL_TAKEOFF_SPEED_JUMP / 2);
+    if (speeds[i] < hold_speed) {
+      i++;
+      continue;
+    }
+    var end = i;
+    while (end + 1 < speeds.length && speeds[end + 1] >= hold_speed - EFOIL_FLIGHT_DIP_TOLERANCE) {
+      end++;
+    }
+    var duration = Times[end] - Times[i];
+    if (duration >= EFOIL_MIN_FLIGHT_SECONDS) {
+      var flight_speed = mean_of_valid(speeds, i, end + 1);
+      var before_current = mean_of_valid(motor_current, pre_start, i);
+      var flight_current = mean_of_valid(motor_current, i, end + 1);
+      var before_cl = mean_of_valid(coefficients, pre_start, i);
+      var flight_cl = mean_of_valid(coefficients, i, end + 1);
+      var current_drop = (before_current > 0) ?
+        (before_current - flight_current) / before_current : 0;
+      var lift_drop = (before_cl != null && flight_cl != null && before_cl > 0) ?
+        (before_cl - flight_cl) / before_cl : null;
+      // Wing area is user supplied, so skip the lift test when it is not configured.
+      var lift_falls = (lift_drop == null) ? true : lift_drop >= EFOIL_TAKEOFF_LIFT_DROP;
+      if (flight_speed != null && flight_speed >= EFOIL_FLIGHT_SPEED_FLOOR &&
+        flight_speed - before_speed >= EFOIL_TAKEOFF_SPEED_JUMP &&
+        current_drop >= EFOIL_TAKEOFF_CURRENT_DROP && lift_falls) {
+        events.push({
+          index: i,
+          duration: duration,
+          before_speed: before_speed,
+          flight_speed: flight_speed,
+          before_current: before_current,
+          flight_current: flight_current,
+          before_cl: before_cl,
+          flight_cl: flight_cl
+        });
+        i = end + 1;
+        continue;
+      }
+    }
+    i++;
+  }
+  return events;
+}
+
 function analyse_performance() {
   var findings = [];
   var temps = data[1];
@@ -641,6 +790,37 @@ function analyse_performance() {
   var voltages = data[6];
   var charged = data[10];
   var samples = Times.length;
+
+  if (board_mode === "efoil") {
+    var takeoff_events = detect_efoil_takeoffs(speeds, motor_current, LiftCoefficients);
+    if (takeoff_events.length) {
+      var takeoff_details = takeoff_events.map(function (event) {
+        var text = new Date(Times[event.index] * 1000).toLocaleTimeString() +
+          " (" + event.before_speed.toFixed(1) + " to " + event.flight_speed.toFixed(1) +
+          " km/h for " + event.duration.toFixed(0) + " s, current " +
+          event.before_current.toFixed(0) + " to " + event.flight_current.toFixed(0) + " A";
+        if (event.before_cl != null && event.flight_cl != null) {
+          text += ", Cl " + event.before_cl.toFixed(2) + " to " + event.flight_cl.toFixed(2);
+        }
+        return text + ")";
+      });
+      findings.push({
+        severity: "info",
+        title: takeoff_events.length > 1 ? "Flights detected" : "Flight detected",
+        detail: takeoff_details.join(", "),
+        action: "Speed rose and held while motor current and lift coefficient both fell, which indicates the board was flying on the foil."
+      });
+    } else {
+      findings.push({
+        severity: "info",
+        title: "No flight detected",
+        detail: "No sustained run of at least " + EFOIL_MIN_FLIGHT_SECONDS +
+          " s combined a rise in speed with a drop in both motor current and lift coefficient. Peak speed was " +
+          array_max(speeds).toFixed(1) + " km/h, against around " + EFOIL_FLIGHT_SPEED_TYPICAL +
+          " km/h when flying, consistent with the board plowing rather than flying."
+      });
+    }
+  }
 
   var fault_counts = {};
   for (var i = 0; i < Faults.length; i++) {
@@ -898,6 +1078,12 @@ function render_performance() {
   container.appendChild(performance_card("Efficiency",
     distance > 0.01 ? (energy_used / distance).toFixed(1) + " Wh/km" : "—",
     distance > 0.01 ? null : "distance too short"));
+  if (board_mode === "efoil") {
+    var lift_coefficient = efoil_lift_coefficient(LiftCoefficients);
+    container.appendChild(performance_card("Lift coefficient",
+      lift_coefficient === null ? "—" : lift_coefficient.toFixed(3),
+      lift_coefficient === null ? "enter wing area in the menu" : "90% motor efficiency assumption"));
+  }
 
   container.appendChild(performance_heading("Battery"));
   container.appendChild(performance_card("Start voltage", voltages[0].toFixed(1) + " V"));
@@ -934,9 +1120,9 @@ function cb_change(e) {
 }
 
 function update_legend_visibility() {
-  var legend = document.querySelector('#chart .legend.inline');
+  var legend = document.querySelector('#chart .u-legend.u-inline, #chart .legend.inline');
   if (legend) {
-    var rows = legend.querySelectorAll('tr.series');
+    var rows = legend.querySelectorAll('tr.u-series, tr.series');
     rows.forEach(function (row) {
       var label = row.querySelector('th');
       var metric_name = label ? label.textContent.trim() : '';
@@ -981,6 +1167,37 @@ function fill_menu() {
   });
   profile_item.appendChild(profile_select);
   menu.appendChild(profile_item);
+
+  if (board_mode === "efoil") {
+    var wing_area_item = document.createElement('li');
+    var wing_area_label = document.createElement('label');
+    wing_area_label.className = 'efoil_setting_label';
+    wing_area_label.htmlFor = 'efoil_wing_area';
+    wing_area_label.textContent = 'Wing area (m²)';
+    var wing_area_input = document.createElement('input');
+    wing_area_input.type = 'number';
+    wing_area_input.id = 'efoil_wing_area';
+    wing_area_input.min = '0.01';
+    wing_area_input.step = '0.01';
+    wing_area_input.placeholder = 'e.g. 0.12';
+    wing_area_input.value = efoil_wing_area > 0 ? efoil_wing_area : '';
+    wing_area_input.addEventListener('input', function (event) {
+      var value = parseFloat(event.target.value);
+      efoil_wing_area = Number.isFinite(value) && value > 0 ? value : 0;
+      if (efoil_wing_area > 0) {
+        localStorage.setItem('vdla-efoil-wing-area', efoil_wing_area.toString());
+      } else {
+        localStorage.removeItem('vdla-efoil-wing-area');
+      }
+      update_efoil_lift_coefficients();
+      if (active_tab === 'performance') {
+        render_performance();
+      }
+    });
+    wing_area_item.appendChild(wing_area_label);
+    wing_area_item.appendChild(wing_area_input);
+    menu.appendChild(wing_area_item);
+  }
 
   for (var i in names) {
     i = parseInt(i);
@@ -1132,7 +1349,7 @@ function generate_series() {
         var j = i; // j is a copy of i only available to the scope of the inner function
         var digit_save = digit;
         return function (self, rawValue) {
-          return rawValue.toFixed(digit_save) + units[j]
+          return rawValue == null ? "—" : rawValue.toFixed(digit_save) + units[j]
         }
       })(),
       scale: units[i],
@@ -1234,6 +1451,9 @@ function create_chart() {
     ],
     cursor: {
       y: false,
+    },
+    legend: {
+      show: true,
     },
     series: generate_series(),
     axes: generate_axes(false),
@@ -1402,10 +1622,10 @@ function append_file_content(files_arr) {
     }
     compute_gnss_metrics();
     apply_profile();
+    show_content();
     create_map();
     create_chart();
     fill_menu();
-    show_content();
     show_tab("log");
   }
 }
@@ -1444,6 +1664,8 @@ function reset_log_data() {
   latlngs = [];
   Altitudes = [];
   GPSSpeeds = [];
+  LiftCoefficients = [];
+  EfficiencyWhKm = [];
   VerticalSpeeds = [];
   HorizontalAccuracies = [];
   GnssDistances = [];

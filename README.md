@@ -31,6 +31,8 @@ uPlot submodule is already included in the repository.
 - **Efoil** uses GNSS speed and distance because wheel/tachometer values are
 	not meaningful for an efoil. GNSS-derived altitude, vertical speed, and
 	horizontal accuracy are also available when present in the log.
+	Enter the wing area in the hamburger menu to calculate the efoil lift
+	coefficient from average logged power and GNSS speed.
 
 The selected profile is saved in browser `localStorage` and restored on the
 next visit.
