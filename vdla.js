@@ -51,6 +51,7 @@ var latlngs = [];
 var Altitudes = [];
 var GPSSpeeds = [];
 var VerticalSpeeds = [];
+var HorizontalAccelerations = [];
 var HorizontalAccuracies = [];
 var GnssDistances = [];
 var names = [];
@@ -321,12 +322,14 @@ function haversine_distance_km(lat1, lon1, lat2, lon2) {
 function compute_gnss_metrics() {
   GnssDistances = [];
   VerticalSpeeds = [];
+  HorizontalAccelerations = [];
   var total_distance = 0;
 
   for (var i = 0; i < Times.length; i++) {
     if (i === 0) {
       GnssDistances.push(0);
       VerticalSpeeds.push(0);
+      HorizontalAccelerations.push(0);
       continue;
     }
 
@@ -337,6 +340,8 @@ function compute_gnss_metrics() {
     GnssDistances.push(total_distance);
     VerticalSpeeds.push(elapsed_seconds > 0 ?
       (Altitudes[i] - Altitudes[i - 1]) / elapsed_seconds : 0);
+    HorizontalAccelerations.push(elapsed_seconds > 0 ?
+      ((GPSSpeeds[i] - GPSSpeeds[i - 1]) / 3.6) / elapsed_seconds : 0);
   }
 }
 
@@ -358,15 +363,16 @@ function apply_profile() {
       "Power",
       "Altitude",
       "VerticalSpeed",
+      "HorizontalAcceleration",
       "HorizontalAccuracy"
     ];
-    units = ["°C", "A", "A", "%", "km/h", "V", "Ah", "Ah", "Wh", "Wh", "km", "W", "m", "m/s", "m"];
-    series_shown = [true, false, true, true, true, true, false, false, false, false, true, true, false, false, false];
+    units = ["°C", "A", "A", "%", "km/h", "V", "Ah", "Ah", "Wh", "Wh", "km", "W", "m", "m/s", "m/s²", "m"];
+    series_shown = [true, false, true, true, true, true, false, false, false, false, true, true, false, false, false, false];
     LiftCoefficients = calculate_efoil_lift_coefficients(Powers, GPSSpeeds);
     EfficiencyWhKm = calculate_efficiency_wh_km(Powers, GPSSpeeds);
     data = [Times, TempPcbs, MotorCurrents, BatteryCurrents, DutyCycles, GPSSpeeds,
       InpVoltages, AmpHours, AmpHoursCharged, WattHours, WattHoursCharged,
-      GnssDistances, Powers, Altitudes, VerticalSpeeds, HorizontalAccuracies,
+      GnssDistances, Powers, Altitudes, VerticalSpeeds, HorizontalAccelerations, HorizontalAccuracies,
       LiftCoefficients, EfficiencyWhKm];
     names.push("LiftCoefficient");
     units.push("Cl");
@@ -380,8 +386,11 @@ function apply_profile() {
     series_shown = default_series_shown.slice();
     data = [Times, TempPcbs, MotorCurrents, BatteryCurrents, DutyCycles, Speeds,
       InpVoltages, AmpHours, AmpHoursCharged, WattHours, WattHoursCharged,
-      Distances, Powers, Altitudes, GPSSpeeds];
+      Distances, Powers, Altitudes, GPSSpeeds, HorizontalAccelerations];
     EfficiencyWhKm = calculate_efficiency_wh_km(Powers, Speeds);
+    names.push("HorizontalAcceleration");
+    units.push("m/s²");
+    series_shown.push(false);
     data.push(EfficiencyWhKm);
     names.push("EfficiencyWhKm");
     units.push("Wh/km");
@@ -1281,7 +1290,7 @@ function create_map() {
 }
 
 function update_map_popup(indx) {
-  if (indx != -1 && curr_map_indx != indx) {
+  if (indx != -1 && (curr_map_indx != indx || map_popup == null || !map_popup.isOpen())) {
     var content = []
     for (var i in series_shown) {
       if (series_shown[i]) {
@@ -1302,8 +1311,12 @@ function update_map_popup(indx) {
         .openOn(map);
     } else {
       map_popup.setLatLng(latlngs[indx])
-        .setContent(content.join(""))
-        .update()
+        .setContent(content.join(""));
+      if (map_popup.isOpen()) {
+        map_popup.update();
+      } else {
+        map_popup.openOn(map);
+      }
     }
     curr_map_indx = indx;
   }
