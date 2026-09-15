@@ -2,8 +2,12 @@ var saved_board_mode = localStorage.getItem("vdla-board-mode");
 var board_mode = saved_board_mode === "efoil" ? "efoil" : "eskate";
 var saved_efoil_wing_area = parseFloat(localStorage.getItem("vdla-efoil-wing-area"));
 var efoil_wing_area = Number.isFinite(saved_efoil_wing_area) && saved_efoil_wing_area > 0 ? saved_efoil_wing_area : 0;
-var EFOIL_MOTOR_EFFICIENCY = 0.9;
+var saved_efoil_mass = parseFloat(localStorage.getItem("vdla-efoil-mass"));
+var efoil_mass = Number.isFinite(saved_efoil_mass) && saved_efoil_mass > 0 ? saved_efoil_mass : 0;
+var saved_erpm_to_rpm_multiplier = parseFloat(localStorage.getItem("vdla-erpm-to-rpm-multiplier"));
+var erpm_to_rpm_multiplier = Number.isFinite(saved_erpm_to_rpm_multiplier) && saved_erpm_to_rpm_multiplier > 0 ? saved_erpm_to_rpm_multiplier : 1;
 var EFOIL_WATER_DENSITY = 1025;
+var EFOIL_GRAVITY = 9.80665;
 var saved_series_visibility = localStorage.getItem("vdla-series-visibility");
 var series_visibility = {};
 try {
@@ -50,6 +54,8 @@ var TimePassedInMss = [];
 var latlngs = [];
 var Altitudes = [];
 var GPSSpeeds = [];
+var Erpms = [];
+var Rpms = [];
 var VerticalSpeeds = [];
 var HorizontalAccelerations = [];
 var HorizontalAccuracies = [];
@@ -346,6 +352,9 @@ function compute_gnss_metrics() {
 }
 
 function apply_profile() {
+  Rpms = Erpms.map(function (erpm) {
+    return erpm * erpm_to_rpm_multiplier;
+  });
   if (board_mode === "efoil") {
     // Efoils have no wheel, so the logged tacho speed/distance are meaningless.
     names = [
@@ -364,15 +373,17 @@ function apply_profile() {
       "Altitude",
       "VerticalSpeed",
       "HorizontalAcceleration",
-      "HorizontalAccuracy"
+      "HorizontalAccuracy",
+      "ERPM",
+      "RPM"
     ];
-    units = ["°C", "A", "A", "%", "km/h", "V", "Ah", "Ah", "Wh", "Wh", "km", "W", "m", "m/s", "m/s²", "m"];
-    series_shown = [true, false, true, true, true, true, false, false, false, false, true, true, false, false, false, false];
-    LiftCoefficients = calculate_efoil_lift_coefficients(Powers, GPSSpeeds);
+    units = ["°C", "A", "A", "%", "km/h", "V", "Ah", "Ah", "Wh", "Wh", "km", "W", "m", "m/s", "m/s²", "m", "ERPM", "RPM"];
+    series_shown = [true, false, true, true, true, true, false, false, false, false, true, true, false, false, false, false, false, false];
+    LiftCoefficients = calculate_efoil_lift_coefficients(GPSSpeeds);
     EfficiencyWhKm = calculate_efficiency_wh_km(Powers, GPSSpeeds);
     data = [Times, TempPcbs, MotorCurrents, BatteryCurrents, DutyCycles, GPSSpeeds,
       InpVoltages, AmpHours, AmpHoursCharged, WattHours, WattHoursCharged,
-      GnssDistances, Powers, Altitudes, VerticalSpeeds, HorizontalAccelerations, HorizontalAccuracies,
+      GnssDistances, Powers, Altitudes, VerticalSpeeds, HorizontalAccelerations, HorizontalAccuracies, Erpms, Rpms,
       LiftCoefficients, EfficiencyWhKm];
     names.push("LiftCoefficient");
     units.push("Cl");
@@ -391,6 +402,14 @@ function apply_profile() {
     names.push("HorizontalAcceleration");
     units.push("m/s²");
     series_shown.push(false);
+    names.push("ERPM");
+    units.push("ERPM");
+    series_shown.push(false);
+    data.push(Erpms);
+    names.push("RPM");
+    units.push("RPM");
+    series_shown.push(false);
+    data.push(Rpms);
     data.push(EfficiencyWhKm);
     names.push("EfficiencyWhKm");
     units.push("Wh/km");
@@ -584,13 +603,13 @@ function performance_card(label, value, note) {
   return card;
 }
 
-function calculate_efoil_lift_coefficients(powers, speeds) {
+function calculate_efoil_lift_coefficients(speeds) {
   var coefficients = [];
-  for (var i = 0; i < powers.length; i++) {
+  for (var i = 0; i < speeds.length; i++) {
     var speed_ms = speeds[i] / 3.6;
-    coefficients.push(efoil_wing_area > 0 && speed_ms > 0 ?
-      powers[i] * EFOIL_MOTOR_EFFICIENCY /
-      (EFOIL_WATER_DENSITY * efoil_wing_area * speed_ms) : null);
+    coefficients.push(efoil_mass > 0 && efoil_wing_area > 0 && speed_ms > 0 ?
+      2 * efoil_mass * EFOIL_GRAVITY /
+      (EFOIL_WATER_DENSITY * efoil_wing_area * speed_ms * speed_ms) : null);
   }
   return coefficients;
 }
@@ -604,7 +623,7 @@ function calculate_efficiency_wh_km(powers, speeds) {
 }
 
 function efoil_lift_coefficient(coefficients) {
-  if (board_mode !== "efoil" || efoil_wing_area <= 0) {
+  if (board_mode !== "efoil" || efoil_mass <= 0 || efoil_wing_area <= 0) {
     return null;
   }
   var valid_coefficients = coefficients.filter(function (coefficient) {
@@ -620,7 +639,7 @@ function update_efoil_lift_coefficients() {
   if (board_mode !== "efoil" || !data.length) {
     return;
   }
-  LiftCoefficients = calculate_efoil_lift_coefficients(Powers, GPSSpeeds);
+  LiftCoefficients = calculate_efoil_lift_coefficients(GPSSpeeds);
   data[names.indexOf("LiftCoefficient") + 1] = LiftCoefficients;
   if (uplot) {
     uplot.setData(data);
@@ -1091,7 +1110,7 @@ function render_performance() {
     var lift_coefficient = efoil_lift_coefficient(LiftCoefficients);
     container.appendChild(performance_card("Lift coefficient",
       lift_coefficient === null ? "—" : lift_coefficient.toFixed(3),
-      lift_coefficient === null ? "enter wing area in the menu" : "90% motor efficiency assumption"));
+        lift_coefficient === null ? "enter rider + board mass and wing area in the menu" : "calculated from weight, wing area, and GNSS speed"));
   }
 
   container.appendChild(performance_heading("Battery"));
@@ -1177,7 +1196,63 @@ function fill_menu() {
   profile_item.appendChild(profile_select);
   menu.appendChild(profile_item);
 
+  var erpm_item = document.createElement('li');
+  var erpm_label = document.createElement('label');
+  erpm_label.className = 'efoil_setting_label';
+  erpm_label.htmlFor = 'erpm_to_rpm_multiplier';
+  erpm_label.textContent = 'ERPM to RPM multiplier';
+  var erpm_input = document.createElement('input');
+  erpm_input.type = 'number';
+  erpm_input.id = 'erpm_to_rpm_multiplier';
+  erpm_input.min = '0.0001';
+  erpm_input.step = '0.0001';
+  erpm_input.value = erpm_to_rpm_multiplier;
+  erpm_input.addEventListener('input', function (event) {
+    var value = parseFloat(event.target.value);
+    erpm_to_rpm_multiplier = Number.isFinite(value) && value > 0 ? value : 1;
+    localStorage.setItem('vdla-erpm-to-rpm-multiplier', erpm_to_rpm_multiplier.toString());
+    apply_profile();
+    if (uplot) {
+      uplot.setData(data);
+    }
+    if (active_tab === 'performance') {
+      render_performance();
+    }
+  });
+  erpm_item.appendChild(erpm_label);
+  erpm_item.appendChild(erpm_input);
+  menu.appendChild(erpm_item);
+
   if (board_mode === "efoil") {
+    var mass_item = document.createElement('li');
+    var mass_label = document.createElement('label');
+    mass_label.className = 'efoil_setting_label';
+    mass_label.htmlFor = 'efoil_mass';
+    mass_label.textContent = 'Rider + board mass (kg)';
+    var mass_input = document.createElement('input');
+    mass_input.type = 'number';
+    mass_input.id = 'efoil_mass';
+    mass_input.min = '1';
+    mass_input.step = '0.1';
+    mass_input.placeholder = 'e.g. 100';
+    mass_input.value = efoil_mass > 0 ? efoil_mass : '';
+    mass_input.addEventListener('input', function (event) {
+      var value = parseFloat(event.target.value);
+      efoil_mass = Number.isFinite(value) && value > 0 ? value : 0;
+      if (efoil_mass > 0) {
+        localStorage.setItem('vdla-efoil-mass', efoil_mass.toString());
+      } else {
+        localStorage.removeItem('vdla-efoil-mass');
+      }
+      update_efoil_lift_coefficients();
+      if (active_tab === 'performance') {
+        render_performance();
+      }
+    });
+    mass_item.appendChild(mass_label);
+    mass_item.appendChild(mass_input);
+    menu.appendChild(mass_item);
+
     var wing_area_item = document.createElement('li');
     var wing_area_label = document.createElement('label');
     wing_area_label.className = 'efoil_setting_label';
@@ -1539,6 +1614,7 @@ function parse_LogFile(txt, time) {
             latlngs.push([values[15], values[16]]);
             Altitudes.push(values[17]);
             GPSSpeeds.push(values[18]);
+            Erpms.push(0);
             HorizontalAccuracies.push(0);
           } else {
             console.log("found invalid data:\n" + lines[i])
@@ -1609,6 +1685,7 @@ function parse_LogFile(txt, time) {
             latlngs.push([values[48], values[49]]);
             Altitudes.push(values[50]);
             GPSSpeeds.push(values[51] * 3.6);
+            Erpms.push(values[11]);
             HorizontalAccuracies.push(values[53]);
           } else {
             console.log("found invalid data:\n" + lines[i])
@@ -1677,6 +1754,8 @@ function reset_log_data() {
   latlngs = [];
   Altitudes = [];
   GPSSpeeds = [];
+  Erpms = [];
+  Rpms = [];
   LiftCoefficients = [];
   EfficiencyWhKm = [];
   VerticalSpeeds = [];

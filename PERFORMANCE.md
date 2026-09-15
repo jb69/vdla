@@ -22,6 +22,7 @@ The analysis checks:
 - Low cell voltage. The cell count is estimated by rounding the maximum logged voltage divided by 4.2 V. A minimum estimated cell voltage below 3.2 V is reported as a warning.
 - GNSS accuracy. More than 25% of samples with horizontal accuracy worse than 5 m is reported as poor accuracy.
 - Regeneration. Little or no increase in charged watt-hours is reported as no regenerative braking recorded.
+- Efoil lift coefficient. The true lift coefficient is calculated as $C_L = 2mg / (rho A v^2)$ from rider-plus-board mass, configured wing area, water density, and GNSS speed. Both mass and wing area must be entered in the menu.
 - Efoil flight. Flying on the foil lifts the board clear of the water, so drag falls sharply and the board runs faster on less power. A flight is reported only when all three signatures occur together and are sustained for at least 3 seconds: speed rises at least 3 km/h above the preceding plowing state, motor current falls at least 15%, and the lift coefficient falls at least 15%. Speeds below 10 km/h are rejected outright as too slow to be flight; around 15 km/h is indicative of flight but is not itself a test. Each flight is listed with its timestamp, duration, and before/after speed, current, and lift coefficient. Logs without that pattern are reported as having no flight detected, along with the peak speed reached.
 
 These are heuristic checks, not replacements for the VESC configuration, hardware limits, or a safety inspection.
